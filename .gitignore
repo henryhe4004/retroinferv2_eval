@@ -410,3 +410,8 @@ benchmark/reasoning/outputs
 
 !benchmark/reasoning/data/**/*.jsonl
 !asserts/*.png
+
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache1-policyLRU
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache1-policyLRU
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys1-cache1-policyLRU
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys1-cache1-policyFIFO

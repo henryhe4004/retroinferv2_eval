@@ -9,6 +9,8 @@ def add_config_args(parser):
     parser.add_argument("--retrieval_budget", type=float, default=0.018, help="Retrieval budget")
     parser.add_argument("--estimation_budget", type=float, default=0.232, help="Estimation budget for RetroInfer")
     parser.add_argument("--cache_ratio", type=float, default=0.0, help="Cache ratio for RetroInfer")
+    parser.add_argument("--cache_policy", type=str, default=os.getenv("RETRO_CACHE_POLICY", "LRU"),
+                        choices=["LRU", "FIFO", "lru", "fifo"], help="GPU block cache policy for RetroInfer")
     parser.add_argument("--use_cuda_graph", action='store_true', help="Use CUDA graph for inference")
     parser.add_argument("--gpu_only", action='store_true', help="Whether to use GPU-only mode for RetroInfer")
     return parser
@@ -35,11 +37,21 @@ def get_numa_node_core_count(node_id=0):
 def generate_config(
     model_name, context_len, attn_type, 
     retrieval_budget=0.018, estimation_budget=0.232, cache_ratio=0.0,
-    use_cuda_graph=False, gpu_only=False
+    use_cuda_graph=False, gpu_only=False, cache_policy="LRU"
 ):
     CONFIG_DIR = os.path.join(PROJECT_ROOT, "config")
     MODEL_NAME = model_name.split("/")[-1]+'.json'
     CONFIG_FILE = os.path.join(CONFIG_DIR, MODEL_NAME)
+    if not os.path.exists(CONFIG_FILE):
+        model_basename = model_name.split("/")[-1]
+        if "Qwen2.5-72B" in model_basename:
+            CONFIG_FILE = os.path.join(CONFIG_DIR, "Qwen2.5-72B-Instruct.json")
+        elif "Qwen" in model_basename:
+            CONFIG_FILE = os.path.join(CONFIG_DIR, "Qwen2.5-7B-Instruct.json")
+        elif "Llama-3.1" in model_basename:
+            CONFIG_FILE = os.path.join(CONFIG_DIR, "Llama-3.1-8B-Instruct.json")
+        elif "Llama" in model_basename:
+            CONFIG_FILE = os.path.join(CONFIG_DIR, "Llama-3-8B-Instruct-Gradient-1048k.json")
     with open(CONFIG_FILE, "r") as f:
         _config = json.load(f)
     
@@ -61,6 +73,7 @@ def generate_config(
         _config[attn_type]['retrieval_budget'] = retrieval_budget
         _config[attn_type]['estimation_budget'] = estimation_budget
         _config[attn_type]['cache_ratio'] = cache_ratio
+        _config[attn_type]['cache_policy'] = cache_policy.upper()
         if context_len <= 4096: # increase buffer size for small context
             _config[attn_type]['buffer_cluster_num'] = 150
         _config[attn_type]['use_cuda_graph'] = use_cuda_graph

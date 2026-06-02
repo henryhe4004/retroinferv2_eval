@@ -31,10 +31,51 @@ def parse_args():
     parser.add_argument("--gen_len", type=int, default=100, help="Generation length")
     parser.add_argument("--task_name", type=str, default="NIAH", choices=["NIAH", "fwe", "vt", "qa1", "AIME"],
                         help="Test task name")
+    parser.add_argument("--data", type=str, default=None, help="Optional json/jsonl data file with input and answer/output fields")
+    parser.add_argument("--max_length_deviation_ratio", type=float,
+                        default=float(os.getenv("MAX_LENGTH_DEVIATION_RATIO", "0.10")),
+                        help="Maximum allowed relative deviation between requested context_len and real token length; set <0 to disable")
+    parser.add_argument("--data_sample_scan_limit", type=int, default=int(os.getenv("DATA_SAMPLE_SCAN_LIMIT", "1")),
+                        help="Only scan this many records from json/jsonl data when selecting one performance-test sample")
     parser = add_model_args(parser)
     parser = add_config_args(parser)
     args = parser.parse_args()
     return args
+
+
+def select_record(records, target_length=None):
+    if not records:
+        raise ValueError("No records found in data file")
+    if target_length is None:
+        return records[0]
+
+    with_lengths = [r for r in records if isinstance(r.get("length"), (int, float))]
+    if not with_lengths:
+        return records[0]
+    return min(with_lengths, key=lambda r: abs(int(r["length"]) - target_length))
+
+
+def load_data_file(data_path, target_length=None, scan_limit=32):
+    with open(data_path, "r", encoding="utf-8") as f:
+        if data_path.endswith(".jsonl"):
+            records = []
+            for line in f:
+                if not line.strip():
+                    continue
+                records.append(json.loads(line))
+                if scan_limit > 0 and len(records) >= scan_limit:
+                    break
+            data = select_record(records, target_length)
+        else:
+            data = json.load(f)
+            if isinstance(data, list):
+                data = select_record(data[:scan_limit] if scan_limit > 0 else data, target_length)
+
+    prompt = data.get("input") or data.get("prompt") or data.get("context")
+    groundtruth = data.get("answer") or data.get("outputs") or data.get("output") or data.get("target")
+    if prompt is None:
+        raise ValueError(f"Could not find input/prompt/context in data file: {data_path}")
+    return prompt, groundtruth, data.get("length")
 
 
 if __name__ == "__main__":
@@ -50,16 +91,22 @@ if __name__ == "__main__":
     task_name = args.task_name
 
     TEST_DIR = os.path.join(PROJECT_ROOT, "throughput_eval/test_data")
-    if task_name == "NIAH":
+    if args.data is not None:
+        TEST_FILE = args.data
+        prompt, groundtruth, data_length = load_data_file(TEST_FILE, args.context_len, args.data_sample_scan_limit)
+        print(colored(f"Selected data length metadata: {data_length}, target context_len: {args.context_len}", 'cyan'))
+    elif task_name == "NIAH":
         TEST_FILE = os.path.join(TEST_DIR, f"NIAH_{args.context_len}.json")
         data = json.load(open(TEST_FILE))[0]
         prompt = data['input']
         groundtruth = data['answer']
+        data_length = None
     else:
         TEST_FILE = os.path.join(TEST_DIR, f"{task_name}.json")
         data = json.load(open(TEST_FILE))
         prompt = data['input']
         groundtruth = data['outputs']
+        data_length = data.get("length") if isinstance(data, dict) else None
     prompts = [prompt for _ in range(batch_size)]
 
     tokenizer = load_tokenizer(model_name)
@@ -70,10 +117,18 @@ if __name__ == "__main__":
     gen_len = args.gen_len
     max_len = input_len + gen_len
     print(colored(f"Input length: {input_len}, Gen length: {gen_len}", 'yellow'))
+    if args.max_length_deviation_ratio >= 0:
+        deviation_ratio = abs(input_len - args.context_len) / max(args.context_len, 1)
+        if deviation_ratio > args.max_length_deviation_ratio:
+            raise ValueError(
+                f"Real token length deviation too large: input_len={input_len}, "
+                f"context_len={args.context_len}, deviation_ratio={deviation_ratio:.4f}, "
+                f"max_allowed={args.max_length_deviation_ratio:.4f}, data={TEST_FILE}"
+            )
 
     attn_config = generate_config(model_name, input_len, attn_type, 
                                   float(args.retrieval_budget), float(args.estimation_budget), float(args.cache_ratio),
-                                  args.use_cuda_graph, args.gpu_only)
+                                  args.use_cuda_graph, args.gpu_only, args.cache_policy)
     llm = load_model(model_name, max_len, dtype, device)
 
     out = llm.generate(

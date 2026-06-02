@@ -274,6 +274,7 @@ class QwenModel(LLM):
                     cache_ratio = retroinfer_config["cache_ratio"],
                     buffer_cluster_num = retroinfer_config["buffer_cluster_num"],
                     use_cuda_graph = retroinfer_config["use_cuda_graph"],
+                    cache_policy = retroinfer_config.get("cache_policy", "LRU"),
                     prefill_bsz = self.prefill_bsz,
                     num_gpus = self.num_gpus,
                     model_size = int(re.search(r'(\d+)[B]', self.model_name).group(1))

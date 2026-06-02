@@ -132,12 +132,20 @@ class LLM:
 
         if self.num_gpus > 1:
             for ldx in range(self.num_layers):
-                hidden_states = self.layer_decode(ldx, hidden_states)
+                torch.cuda.nvtx.range_push(f"decode_layer_{ldx:02d}")
+                try:
+                    hidden_states = self.layer_decode(ldx, hidden_states)
+                finally:
+                    torch.cuda.nvtx.range_pop()
                 hidden_states = self.parameter_move(hidden_states, ldx)
             hidden_states = hidden_states.to(self.layers[0].device)
         else:
             for ldx in range(self.num_layers):
-                hidden_states = self.layer_decode(ldx, hidden_states)
+                torch.cuda.nvtx.range_push(f"decode_layer_{ldx:02d}")
+                try:
+                    hidden_states = self.layer_decode(ldx, hidden_states)
+                finally:
+                    torch.cuda.nvtx.range_pop()
         
         hidden_states = self.layernorm(hidden_states, self.norm_variance_epsilon, self.norm_weight)
         logits = self.lm(hidden_states)

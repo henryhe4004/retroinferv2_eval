@@ -15,38 +15,34 @@
 ### Environment Setup
 The required dependency packages rely on `CUDA 12.4`, you can use the docker image `nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04` if your system does not have `CUDA 12.4` installed.
 
-The code was tested with `Python 3.10.16`, we recommend using `conda` to mange your Python environments:
+The code was tested with `Python 3.10.16`, we recommend using `uv` to manage your Python environments:
 ```bash
-# firstly install miniconda if you don't have it, then create a new conda environment:
-conda create -n retroinfer python=3.10 -y
-conda activate retroinfer 
+# firstly install uv if you don't have it:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# install conda packages
-conda install -y mkl
-conda install -c conda-forge libstdcxx-ng -y
-
-# may need to downgrade pip to <=25.0 to solve `DEPRECATION warning` when using `pip install .` to install kernels
-python -m pip install pip==25.0
+# create and activate a new virtual environment:
+uv venv --python 3.10 .venv
+source .venv/bin/activate
 
 # install python packages
-pip install -r requirements.txt
-pip install flash-attn==2.7.3 --no-build-isolation
-pip install flashinfer-python==0.2.4 -i https://flashinfer.ai/whl/cu124/torch2.5/
-pip install git+https://github.com/Starmys/flash-attention.git@weighted
+uv pip install -r requirements.txt
+uv pip install flash-attn==2.7.3 --no-build-isolation
+uv pip install flashinfer-python==0.2.4 --index-url https://flashinfer.ai/whl/cu124/torch2.5/
+uv pip install git+https://github.com/Starmys/flash-attention.git@weighted
 ```
 
 ### Install Kernels
 ```bash
 cd library/
 git clone https://github.com/NVIDIA/cutlass.git
-cd retroinfer && pip install . && cd ..
+cd retroinfer && uv pip install --no-build-isolation . && cd ..
 
 # If you want to use MInference, install the following package:
-pip install minference==0.1.6.0
+uv pip install minference==0.1.6.0
 
 # If you want to use XAttention, install the following kernels:
 git clone https://github.com/mit-han-lab/Block-Sparse-Attention.git 
-cd Block-Sparse-Attention && git checkout 0e2478b0a4d9858cf0910f78a8aaf4fba751de69 && export MAX_JOBS=8 && python setup.py install && cd ..
+cd Block-Sparse-Attention && git checkout 0e2478b0a4d9858cf0910f78a8aaf4fba751de69 && export MAX_JOBS=8 && uv pip install . && cd ..
 
 # go back to root directory
 cd ..

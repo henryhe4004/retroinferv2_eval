@@ -36,6 +36,7 @@ class retroinfer_cache(KV_Cache):
         cache_ratio: float,         # ratio of cache size to sequence length
         buffer_cluster_num: int,    # number of clusters in the buffer
         use_cuda_graph: bool,
+        cache_policy: str,
         prefill_bsz: int,
         num_gpus: int,
         model_size: int
@@ -48,6 +49,9 @@ class retroinfer_cache(KV_Cache):
         self.DTYPE_MIN = torch.finfo(self.dtype).min
 
         self.valid_start_list = valid_start
+        self.cache_policy = cache_policy.upper()
+        if self.cache_policy not in ("LRU", "FIFO"):
+            raise ValueError(f"Unsupported cache policy: {cache_policy}. Supported policies: LRU, FIFO.")
 
         self.static_pattern_start = static_pattern_start
         self.static_pattern_end = static_pattern_end
@@ -153,6 +157,7 @@ class retroinfer_cache(KV_Cache):
         self.cache_size = cache_cluster_num * pages_per_cluster
         self.buffer_size = max(buffer_cluster_num, (self.nprobe + self.nprobe_new) * 4) * pages_per_cluster
         print(f"Cache pages: {self.cache_size}, Buffer pages: {self.buffer_size}")
+        print(f"Cache policy: {self.cache_policy}")
 
         # whether to pre-allocate GPU cache and buffer before prefilling
         self.allocated = self.pre_allocate_decision()
@@ -163,7 +168,8 @@ class retroinfer_cache(KV_Cache):
         # initialize the Wave Buffer
         self.wave_buffer = [WaveBufferCPU(
             self.batch_size, self.kv_head, self.head_dim, self.nprobe, self.nprobe_new, self.page_size, 
-            self.n_centroids+self.n_centroids_new, self.buffer_size, self.cache_size, core, thread_pool_pointer)
+            self.n_centroids+self.n_centroids_new, self.buffer_size, self.cache_size, core, thread_pool_pointer,
+            self.cache_policy)
             for _ in range(self.layer_num)
         ]
 
