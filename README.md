@@ -23,12 +23,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # create and activate a new virtual environment:
 uv venv --python 3.10 .venv
 source .venv/bin/activate
+apt-get update
+apt-get install -y python3.10-dev build-essential
 
 # install python packages
 uv pip install -r requirements.txt
+uv pip install setuptools
 uv pip install flash-attn==2.7.3 --no-build-isolation
 uv pip install flashinfer-python==0.2.4 --index-url https://flashinfer.ai/whl/cu124/torch2.5/
-uv pip install git+https://github.com/Starmys/flash-attention.git@weighted
+export MAX_JOBS=4 # A40
+export TORCH_CUDA_ARCH_LIST="8.0" #A40
+uv pip install --no-build-isolation git+https://github.com/Starmys/flash-attention.git@weighted
 ```
 
 ### Install Kernels
@@ -37,15 +42,15 @@ cd library/
 git clone https://github.com/NVIDIA/cutlass.git
 cd retroinfer && uv pip install --no-build-isolation . && cd ..
 
-# If you want to use MInference, install the following package:
-uv pip install minference==0.1.6.0
+# # If you want to use MInference, install the following package:
+# uv pip install minference==0.1.6.0
 
-# If you want to use XAttention, install the following kernels:
-git clone https://github.com/mit-han-lab/Block-Sparse-Attention.git 
-cd Block-Sparse-Attention && git checkout 0e2478b0a4d9858cf0910f78a8aaf4fba751de69 && export MAX_JOBS=8 && uv pip install . && cd ..
+# # If you want to use XAttention, install the following kernels:
+# git clone https://github.com/mit-han-lab/Block-Sparse-Attention.git 
+# cd Block-Sparse-Attention && git checkout 0e2478b0a4d9858cf0910f78a8aaf4fba751de69 && export MAX_JOBS=8 && uv pip install . && cd ..
 
 # go back to root directory
-cd ..
+# cd ..
 ```
 
 ### Simple Test

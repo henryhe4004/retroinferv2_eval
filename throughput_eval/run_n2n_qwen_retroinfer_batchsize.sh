@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 CUDA_DEVICE="${CUDA_DEVICE:-0}"
-MODEL_NAME="${MODEL_NAME:-/nfs/shared_LLM_model/Qwen/Qwen2.5-14B-Instruct-1M}"
+MODEL_NAME="${MODEL_NAME:-/jhe/Qwen2.5-14B-Instruct-1M}"
 MODEL_TAG="${MODEL_TAG:-qwen2.5-14b-1m}"
 DATASET_STEM="${DATASET_STEM:-Qwen2.5-7B-Instruct-1M}"
 DATA_DIR="${DATA_DIR:-/jhe/dataset/ruler}"

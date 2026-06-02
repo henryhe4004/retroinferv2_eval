@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 CUDA_DEVICE="${CUDA_DEVICE:-0}"
-MODEL_NAME="${MODEL_NAME:-/data3/Llama-3-8B-Instruct-Gradient-1048k}"
+MODEL_NAME="${MODEL_NAME:-/jhe/Llama-3-8B-Instruct-Gradient-1048k}"
 MODEL_TAG="${MODEL_TAG:-llama3-8b-1048k}"
 DATASET_STEM="${DATASET_STEM:-Llama-3-8B-Instruct-Gradient-1048k}"
 DATA_DIR="${DATA_DIR:-/jhe/dataset/ruler}"
