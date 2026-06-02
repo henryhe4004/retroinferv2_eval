@@ -8,7 +8,8 @@ def add_config_args(parser):
                         choices=["Full_Flash_Attn", "RetroInfer"], help="Attention method")
     parser.add_argument("--retrieval_budget", type=float, default=0.018, help="Retrieval budget")
     parser.add_argument("--estimation_budget", type=float, default=0.232, help="Estimation budget for RetroInfer")
-    parser.add_argument("--cache_ratio", type=float, default=0.0, help="Cache ratio for RetroInfer")
+    parser.add_argument("--cache_ratio", type=float, default=0.0,
+                        help="GPU cache multiplier relative to retrieved clusters; <=0 uses 3x")
     parser.add_argument("--cache_policy", type=str, default=os.getenv("RETRO_CACHE_POLICY", "LRU"),
                         choices=["LRU", "FIFO", "lru", "fifo"], help="GPU block cache policy for RetroInfer")
     parser.add_argument("--use_cuda_graph", action='store_true', help="Use CUDA graph for inference")

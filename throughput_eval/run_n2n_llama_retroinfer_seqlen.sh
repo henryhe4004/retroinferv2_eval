@@ -10,15 +10,23 @@ MODEL_TAG="${MODEL_TAG:-llama3-8b-1048k}"
 DATASET_STEM="${DATASET_STEM:-Llama-3-8B-Instruct-Gradient-1048k}"
 DATA_DIR="${DATA_DIR:-/jhe/dataset/ruler}"
 RULER_TASK="${RULER_TASK:-auto}"
-MAX_LENGTH_DEVIATION_RATIO="${MAX_LENGTH_DEVIATION_RATIO:-0.10}"
+MAX_LENGTH_DEVIATION_RATIO="${MAX_LENGTH_DEVIATION_RATIO:--1}"
 DATA_SAMPLE_SCAN_LIMIT="${DATA_SAMPLE_SCAN_LIMIT:-1}"
+D_TYPE="${DTYPE:-bf16}"
+GEN_LEN="${GEN_LEN:-50}"
+PREFILL_BSZ="${PREFILL_BSZ:-1}"
+PREFILL_METHOD="${PREFILL_METHOD:-full}"
 SEQ_LIST="${SEQ_LIST:-4 8 16 32 64 128 256}"  #8 16 32 64 128
 BSZ_LIST="${BSZ_LIST:-1}"
-TOPK="${TOPK:-0.10}"
-CACHE="${CACHE:-1}"
+TOPK="${TOPK:-${RETRIEVAL_BUDGET:-0.10}}"
+RETRIEVAL_BUDGET="${RETRIEVAL_BUDGET:-${TOPK}}"
+ESTIMATION_BUDGET="${ESTIMATION_BUDGET:-0.232}"
+CACHE="${CACHE:-${CACHE_RATIO:-1}}"
+CACHE_RATIO="${CACHE_RATIO:-${CACHE}}"
 CACHE_POLICY="${CACHE_POLICY:-LRU}" # FIFO | LRU
 USE_CUDA_GRAPH="${USE_CUDA_GRAPH:-1}"
-RETRO_CACHE_STATS="${RETRO_CACHE_STATS:-0}"
+GPU_ONLY="${GPU_ONLY:-0}"
+RETRO_CACHE_STATS="${RETRO_CACHE_STATS:-1}"
 OMP_THREADS="${OMP_THREADS:-64}"
 USE_NUMACTL="${USE_NUMACTL:-1}"
 NUMA_NODE="${NUMA_NODE:-0}"
@@ -140,7 +148,8 @@ if not log_path.exists():
 
 ansi_re = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 metric_re = re.compile(
-    r"Decoding latency:\s*([0-9]*\.?[0-9]+)\s*ms/step,\s*Throughput:\s*([0-9]*\.?[0-9]+)\s*tokens/s"
+    r"Decoding latency:\s*(?:(?:[0-9]*\.?[0-9]+)\s*s\s*\()?([0-9]*\.?[0-9]+)\s*ms/step\)?"
+    r",\s*Throughput:\s*([0-9]*\.?[0-9]+)\s*tokens/s"
 )
 overall_cache_re = re.compile(
     r"Overall\s*\|\s*[^|]*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)%"
@@ -351,14 +360,24 @@ PY
       --model_name "${MODEL_NAME}"
       --attn_type RetroInfer
       --context_len "${seq_tokens}"
+      --gen_len "${GEN_LEN}"
       --data "${data_file}"
       --batch_size "${bsz}"
+      --prefill_bsz "${PREFILL_BSZ}"
+      --prefill_method "${PREFILL_METHOD}"
+      --dtype "${D_TYPE}"
+      --retrieval_budget "${RETRIEVAL_BUDGET}"
+      --estimation_budget "${ESTIMATION_BUDGET}"
+      --cache_ratio "${CACHE_RATIO}"
       --cache_policy "${CACHE_POLICY}"
       --max_length_deviation_ratio "${MAX_LENGTH_DEVIATION_RATIO}"
       --data_sample_scan_limit "${DATA_SAMPLE_SCAN_LIMIT}"
     )
     if is_truthy "${USE_CUDA_GRAPH}"; then
       cmd+=(--use_cuda_graph)
+    fi
+    if is_truthy "${GPU_ONLY}"; then
+      cmd+=(--gpu_only)
     fi
 
     launch_cmd=("${cmd[@]}")
@@ -404,7 +423,7 @@ PY
       echo "[NSYS] ${run_name} -> ${nsys_output}.nsys-rep"
     fi
 
-    echo "[RUN] ${run_name} data=${data_file} ruler_task=${actual_ruler_task} data_length=${actual_data_length:-unknown} sample_scan_limit=${DATA_SAMPLE_SCAN_LIMIT} max_len_dev=${MAX_LENGTH_DEVIATION_RATIO} cache=${CACHE} cache_policy=${CACHE_POLICY} cuda_graph=${USE_CUDA_GRAPH} cache_stats=${RETRO_CACHE_STATS}"
+    echo "[RUN] ${run_name} data=${data_file} ruler_task=${actual_ruler_task} data_length=${actual_data_length:-unknown} sample_scan_limit=${DATA_SAMPLE_SCAN_LIMIT} max_len_dev=${MAX_LENGTH_DEVIATION_RATIO} dtype=${D_TYPE} gen_len=${GEN_LEN} prefill_bsz=${PREFILL_BSZ} prefill_method=${PREFILL_METHOD} retrieval_budget=${RETRIEVAL_BUDGET} estimation_budget=${ESTIMATION_BUDGET} cache_multiplier=${CACHE_RATIO} cache=${CACHE} cache_policy=${CACHE_POLICY} cuda_graph=${USE_CUDA_GRAPH} gpu_only=${GPU_ONLY} cache_stats=${RETRO_CACHE_STATS}"
     set +e
     RATIO="${TOPK}" CACHE="${CACHE}" RETRO_CACHE_POLICY="${CACHE_POLICY}" RETRO_CACHE_STATS="${RETRO_CACHE_STATS}" OMP_NUM_THREADS="${OMP_THREADS}" \
       "${run_cmd[@]}" 2>&1 | tee "${log_file}"

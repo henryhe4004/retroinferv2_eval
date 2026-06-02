@@ -1,4 +1,6 @@
 import math
+import os
+import atexit
 import torch
 from retroinfer_kernels import ThreadPool, WaveBufferCPU
 from retroinfer_kernels import gather_copy_and_concat, gather_copy_and_scatter, gather_copy_vectors, batch_gemm_softmax
@@ -33,7 +35,7 @@ class retroinfer_cache(KV_Cache):
         pages_per_cluster: int,     # 1 cluster = 2 pages = 2 * 8 vectors
         retrieval_budget: float,
         estimation_budget: float,
-        cache_ratio: float,         # ratio of cache size to sequence length
+        cache_ratio: float,         # multiplier of retrieved clusters for GPU cache size
         buffer_cluster_num: int,    # number of clusters in the buffer
         use_cuda_graph: bool,
         cache_policy: str,
@@ -52,6 +54,9 @@ class retroinfer_cache(KV_Cache):
         self.cache_policy = cache_policy.upper()
         if self.cache_policy not in ("LRU", "FIFO"):
             raise ValueError(f"Unsupported cache policy: {cache_policy}. Supported policies: LRU, FIFO.")
+        cache_stats_flag = os.environ.get("RETRO_CACHE_STATS", "0").strip().lower()
+        self.enable_cache_stats = cache_stats_flag in ("1", "true", "on", "yes")
+        self._cache_stats_printed = False
 
         self.static_pattern_start = static_pattern_start
         self.static_pattern_end = static_pattern_end
@@ -151,11 +156,14 @@ class retroinfer_cache(KV_Cache):
             self.attn_cudagraphs = [torch.cuda.CUDAGraph() for _ in range(self.layer_num)]
             self.update_cudagraphs = [torch.cuda.CUDAGraph() for _ in range(self.layer_num)]
 
-        # calculate the GPU block cache size and compute buffer size (count by pages)
-        cache_cluster_num = round((self.n_centroids + self.n_centroids_new) * cache_ratio) if cache_ratio > 0.0 \
-                            else (self.nprobe + self.nprobe_new) * 3
+        # calculate the GPU block cache size and compute buffer size (count by pages).
+        # Keep CACHE semantics aligned with the old RetrievalAttention_eval repo:
+        # cache_cluster_num = (retrieved clusters) * CACHE.
+        cache_multiplier = cache_ratio if cache_ratio > 0.0 else 3.0
+        cache_cluster_num = max(round((self.nprobe + self.nprobe_new) * cache_multiplier), 1)
         self.cache_size = cache_cluster_num * pages_per_cluster
         self.buffer_size = max(buffer_cluster_num, (self.nprobe + self.nprobe_new) * 4) * pages_per_cluster
+        print(f"Cache clusters: {cache_cluster_num}, Cache multiplier: {cache_multiplier}")
         print(f"Cache pages: {self.cache_size}, Buffer pages: {self.buffer_size}")
         print(f"Cache policy: {self.cache_policy}")
 
@@ -224,6 +232,13 @@ class retroinfer_cache(KV_Cache):
             torch.zeros((self.batch_groups), dtype=torch.int32, pin_memory=True).contiguous()
             for _ in range(self.layer_num)
         ]
+        if self.enable_cache_stats:
+            self.cache_stats = {
+                "policy": self.cache_policy,
+                "total_calls": 0,
+                "layer_stats": {},
+            }
+            atexit.register(self.print_cache_stats)
         # store searched TopK cluster IDs
         self.cluster_ids = torch.empty((self.batch_groups, self.nprobe), dtype=torch.int64, pin_memory=True).contiguous()
 
@@ -756,6 +771,67 @@ class retroinfer_cache(KV_Cache):
             )
         return attn_out.view(self.batch_size, 1, self.num_heads, self.head_dim)
 
+    def _record_cache_stats(self, layer_idx):
+        if not self.enable_cache_stats:
+            return
+
+        if layer_idx not in self.cache_stats["layer_stats"]:
+            self.cache_stats["layer_stats"][layer_idx] = {
+                "calls": 0,
+                "hit_blocks": 0,
+                "miss_blocks": 0,
+                "update_blocks": 0,
+            }
+
+        stats = self.cache_stats["layer_stats"][layer_idx]
+        stats["calls"] += 1
+        stats["hit_blocks"] += int(self.hit_num_units[layer_idx].sum().item())
+        stats["miss_blocks"] += int(self.miss_num_units[layer_idx].sum().item())
+        stats["update_blocks"] += int(self.update_num_units[layer_idx].sum().item())
+        self.cache_stats["total_calls"] += 1
+
+    def print_cache_stats(self):
+        if not self.enable_cache_stats or self._cache_stats_printed:
+            return
+        self._cache_stats_printed = True
+
+        layer_stats = self.cache_stats["layer_stats"]
+        if not layer_stats:
+            return
+
+        print("\n===== RetroInfer Cache Stats =====")
+        print(f"Policy: {self.cache_stats['policy']}")
+        print(f"Total Calls: {self.cache_stats['total_calls']}")
+        print("Layer | Calls | Hit Blocks | Miss Blocks | Update Blocks | Hit Rate")
+        print("------|-------|------------|-------------|---------------|---------")
+
+        total_hit = 0
+        total_miss = 0
+        total_update = 0
+        for layer_idx in sorted(layer_stats):
+            stats = layer_stats[layer_idx]
+            hit_blocks = stats["hit_blocks"]
+            miss_blocks = stats["miss_blocks"]
+            update_blocks = stats["update_blocks"]
+            total_blocks = hit_blocks + miss_blocks
+            hit_rate = hit_blocks / total_blocks * 100 if total_blocks else 0.0
+            total_hit += hit_blocks
+            total_miss += miss_blocks
+            total_update += update_blocks
+            print(
+                f"{layer_idx:5d} | {stats['calls']:5d} | {hit_blocks:10d} | "
+                f"{miss_blocks:11d} | {update_blocks:13d} | {hit_rate:.2f}%"
+            )
+
+        total_blocks = total_hit + total_miss
+        overall_hit_rate = total_hit / total_blocks * 100 if total_blocks else 0.0
+        print("------|-------|------------|-------------|---------------|---------")
+        print(
+            f"{'Overall':>5} | {'':5} | {total_hit:10d} | {total_miss:11d} | "
+            f"{total_update:13d} | {overall_hit_rate:.2f}%"
+        )
+        print("==================================")
+
     
     def sparse_attention(self, queries, layer_idx, static_len):
         """
@@ -822,6 +898,7 @@ class retroinfer_cache(KV_Cache):
 
         # admit pages from execution buffer to GPU block cache
         self.wave_buffer[layer_idx].sync()  # wait for update LRU finish
+        self._record_cache_stats(layer_idx)
         gather_copy_and_scatter(
             self.execution_buffer_keys, self.cache_keys[layer_idx], 
             self.execution_buffer_values, self.cache_values[layer_idx],
@@ -860,6 +937,7 @@ class retroinfer_cache(KV_Cache):
         self.attn_cudagraphs[layer_idx].replay()
 
         self.wave_buffer[layer_idx].sync()  # wait for update LRU finish
+        self._record_cache_stats(layer_idx)
         # admit pages from execution buffer to GPU cache
         self.update_cudagraphs[layer_idx].replay()
 

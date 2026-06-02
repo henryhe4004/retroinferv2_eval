@@ -86,7 +86,7 @@ if __name__ == "__main__":
     model_name = args.model_name
     batch_size = args.batch_size
     attn_type = args.attn_type
-    dtype = torch.bfloat16
+    dtype = torch.float16 if args.dtype == "fp16" else torch.bfloat16
     device = args.device
     task_name = args.task_name
 
