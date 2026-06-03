@@ -8,7 +8,7 @@ CUDA_DEVICE="${CUDA_DEVICE:-0}"
 MODEL_NAME="${MODEL_NAME:-/jhe/Llama-3-8B-Instruct-Gradient-1048k}"
 MODEL_TAG="${MODEL_TAG:-llama3-8b-1048k}"
 DATASET_STEM="${DATASET_STEM:-Llama-3-8B-Instruct-Gradient-1048k}"
-DATA_DIR="${DATA_DIR:-/jhe/dataset/ruler}"
+DATA_DIR="${DATA_DIR:-${SCRIPT_DIR}/data}"
 RULER_TASK="${RULER_TASK:-auto}"
 MAX_LENGTH_DEVIATION_RATIO="${MAX_LENGTH_DEVIATION_RATIO:--1}"
 DATA_SAMPLE_SCAN_LIMIT="${DATA_SAMPLE_SCAN_LIMIT:-1}"
@@ -44,7 +44,7 @@ NSYS_CUDA_GRAPH_TRACE="${NSYS_CUDA_GRAPH_TRACE:-node}"
 NSYS_FORCE_OVERWRITE="${NSYS_FORCE_OVERWRITE:-true}"
 NSYS_EXTRA_ARGS="${NSYS_EXTRA_ARGS:-}"
 
-LOG_DIR="${LOG_DIR:-${SCRIPT_DIR}/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys${NSYS_PROFILE}-cache${CACHE}-policy${CACHE_POLICY}}"
+LOG_DIR="${LOG_DIR:-${SCRIPT_DIR}/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys${NSYS_PROFILE}-cache${CACHE}-policy${CACHE_POLICY}-cudagraph${USE_CUDA_GRAPH}}"
 NSYS_HAS_SAMPLE=0
 NSYS_HAS_CPUCTXSW=0
 NSYS_HAS_CUDA_TRACE_SCOPE=0
@@ -375,7 +375,23 @@ for seq in ${SEQ_LIST}; do
 
   actual_ruler_task="${RULER_TASK}"
   actual_data_length=""
-  if [[ "${RULER_TASK}" == "auto" ]]; then
+  legacy_data_file="${DATA_DIR}/RULER-${DATASET_STEM}-${seq_in_k}K.jsonl"
+  if [[ -f "${legacy_data_file}" ]]; then
+    data_file="${legacy_data_file}"
+    actual_ruler_task="legacy"
+    actual_data_length="$("${PYTHON_BIN}" - "${data_file}" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    for line in f:
+        if line.strip():
+            length = json.loads(line).get("length")
+            print(length if length is not None else "")
+            break
+PY
+)"
+  elif [[ "${RULER_TASK}" == "auto" ]]; then
     read -r data_file actual_ruler_task actual_data_length < <("${PYTHON_BIN}" - "${DATA_DIR}" "${seq_in_k}" "${seq_tokens}" "${DATA_SAMPLE_SCAN_LIMIT}" <<'PY'
 import json
 import sys

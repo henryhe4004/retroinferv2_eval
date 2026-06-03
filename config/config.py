@@ -35,6 +35,23 @@ def get_numa_node_core_count(node_id=0):
     return max(count - 2, 1)  # reserve 2 cores for system
 
 
+def resolve_retroinfer_core(config_core):
+    core_env = os.environ.get("RETROINFER_CORE", "").strip().lower()
+    if core_env in ("auto", "dynamic", "numa"):
+        return get_numa_node_core_count(0)
+    if core_env:
+        try:
+            core = int(core_env)
+        except ValueError as exc:
+            raise ValueError(
+                "RETROINFER_CORE must be an integer, or one of: auto, dynamic, numa"
+            ) from exc
+        if core <= 0:
+            raise ValueError("RETROINFER_CORE must be positive")
+        return core
+    return int(config_core)
+
+
 def generate_config(
     model_name, context_len, attn_type, 
     retrieval_budget=0.018, estimation_budget=0.232, cache_ratio=0.0,
@@ -67,7 +84,7 @@ def generate_config(
     n_clusters = lower if abs(n_clusters - lower) <= abs(n_clusters - upper) else upper
 
     if attn_type == 'RetroInfer':
-        _config[attn_type]['core'] = get_numa_node_core_count(0)
+        _config[attn_type]['core'] = resolve_retroinfer_core(_config[attn_type].get('core', 22))
         _config[attn_type]['n_centroids'] = n_clusters
         _config[attn_type]['n_segment'] = n_segments
         _config[attn_type]['pages_per_cluster'] = round(avg_cluster_size / 8) # default page size is 8 vectors

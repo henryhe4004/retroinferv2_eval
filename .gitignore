@@ -415,3 +415,16 @@ throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache1-policyLRU
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys1-cache1-policyLRU
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys1-cache1-policyFIFO
+
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys1-cache3-policyLRU-cudagraph1
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-batchsize-logs-nsys0-cache3-policyLRU-cudagraph1
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache1-policyFIFO-cudagraph1-core94
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph1
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph1-core94
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache3-policyLRU-cudagraph1
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-batchsize-logs-nsys0-cache3-policyLRU-cudagraph1
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph0-core94
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraoh0-core94
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph0-dynamicdata-core94
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph1
+throughput_eval/Qwen2.5-14B-Instruct-1M-retroinfer-seqlen-logs-nsys0-cache3-policyLRU-cudagraph1-core94
