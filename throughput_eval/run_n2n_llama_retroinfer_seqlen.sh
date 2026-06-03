@@ -28,6 +28,7 @@ USE_CUDA_GRAPH="${USE_CUDA_GRAPH:-1}"
 GPU_ONLY="${GPU_ONLY:-0}"
 RETRO_CACHE_STATS="${RETRO_CACHE_STATS:-1}"
 OMP_THREADS="${OMP_THREADS:-64}"
+GPU_MEM_MONITOR_INTERVAL_SEC="${GPU_MEM_MONITOR_INTERVAL_SEC:-0.5}"
 USE_NUMACTL="${USE_NUMACTL:-1}"
 NUMA_NODE="${NUMA_NODE:-0}"
 RUN_SUFFIX="${RUN_SUFFIX:-}"
@@ -118,6 +119,44 @@ detect_nsys_profile_features() {
   fi
 }
 
+start_gpu_memory_monitor() {
+  local gpu_index="$1"
+  local output_csv="$2"
+  local interval_sec="$3"
+
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "[GPU_MEM][WARN] nvidia-smi not found, skip GPU memory monitoring" >&2
+    return 1
+  fi
+
+  (
+    echo "timestamp_utc,memory_used_mib" > "${output_csv}"
+    while true; do
+      local ts
+      local mem
+      ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      mem="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "${gpu_index}" 2>/dev/null | head -n 1 | tr -d " " || true)"
+      if [[ -n "${mem}" ]]; then
+        echo "${ts},${mem}" >> "${output_csv}"
+      fi
+      sleep "${interval_sec}" || break
+    done
+  ) >/dev/null 2>&1 &
+  gpu_mem_monitor_pid="$!"
+}
+
+stop_gpu_memory_monitor() {
+  local monitor_pid="${1:-}"
+  if [[ -n "${monitor_pid}" ]] && kill -0 "${monitor_pid}" >/dev/null 2>&1; then
+    kill "${monitor_pid}" >/dev/null 2>&1 || true
+    wait "${monitor_pid}" >/dev/null 2>&1 || true
+  fi
+}
+
+gpu_mem_monitor_pid=""
+trap 'stop_gpu_memory_monitor "${gpu_mem_monitor_pid:-}"' EXIT
+trap 'stop_gpu_memory_monitor "${gpu_mem_monitor_pid:-}"; exit 130' INT TERM
+
 append_decode_summary_outputs() {
   local log_file="$1"
   local summary_csv="$2"
@@ -126,7 +165,8 @@ append_decode_summary_outputs() {
   local seq_tokens="$5"
   local batch_size="$6"
   local cache_policy="$7"
-  "${PYTHON_BIN}" - "${log_file}" "${summary_csv}" "${summary_json_dir}" "${run_name}" "${seq_tokens}" "${batch_size}" "${cache_policy}" <<'PY'
+  local gpu_mem_log_file="$8"
+  "${PYTHON_BIN}" - "${log_file}" "${summary_csv}" "${summary_json_dir}" "${run_name}" "${seq_tokens}" "${batch_size}" "${cache_policy}" "${gpu_mem_log_file}" <<'PY'
 import csv
 import json
 import re
@@ -141,6 +181,7 @@ run_name = sys.argv[4]
 seq_tokens = int(sys.argv[5])
 batch_size = int(sys.argv[6])
 cache_policy = sys.argv[7]
+gpu_mem_log_path = Path(sys.argv[8])
 
 if not log_path.exists():
     print(f"[DECODE] missing log file: {log_path}")
@@ -161,6 +202,19 @@ cache_hit_blocks = None
 cache_miss_blocks = None
 cache_update_blocks = None
 cache_hit_ratio = None
+peak_gpu_mem_mib = None
+if gpu_mem_log_path.exists():
+    with gpu_mem_log_path.open(encoding="utf-8", errors="ignore") as f:
+        next(f, None)
+        for raw_line in f:
+            parts = raw_line.strip().split(",")
+            if len(parts) < 2:
+                continue
+            try:
+                mem_mib = int(float(parts[1]))
+            except ValueError:
+                continue
+            peak_gpu_mem_mib = mem_mib if peak_gpu_mem_mib is None else max(peak_gpu_mem_mib, mem_mib)
 for raw_line in reversed(log_path.read_text(encoding="utf-8", errors="ignore").splitlines()):
     line = ansi_re.sub("", raw_line)
     if cache_hit_ratio is None:
@@ -192,6 +246,8 @@ header = [
     "cache_miss_blocks",
     "cache_update_blocks",
     "cache_hit_ratio",
+    "peak_gpu_mem_mib",
+    "gpu_mem_log_file",
     "log_file",
 ]
 row = [
@@ -205,11 +261,26 @@ row = [
     cache_miss_blocks if cache_miss_blocks is not None else "",
     cache_update_blocks if cache_update_blocks is not None else "",
     cache_hit_ratio if cache_hit_ratio is not None else "",
+    peak_gpu_mem_mib if peak_gpu_mem_mib is not None else "",
+    str(gpu_mem_log_path) if gpu_mem_log_path.exists() else "",
     str(log_path),
 ]
 
 summary_path.parent.mkdir(parents=True, exist_ok=True)
-write_header = not summary_path.exists()
+if summary_path.exists():
+    with summary_path.open("r", encoding="utf-8", newline="") as f:
+        existing_rows = list(csv.reader(f))
+    if existing_rows and existing_rows[0] != header:
+        old_header = existing_rows[0]
+        old_rows = existing_rows[1:]
+        with summary_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for old_row in old_rows:
+                mapped = dict(zip(old_header, old_row))
+                writer.writerow([mapped.get(col, "") for col in header])
+
+write_header = not summary_path.exists() or summary_path.stat().st_size == 0
 with summary_path.open("a", encoding="utf-8", newline="") as f:
     writer = csv.writer(f)
     if write_header:
@@ -228,6 +299,8 @@ payload = {
     "cache_miss_blocks": cache_miss_blocks,
     "cache_update_blocks": cache_update_blocks,
     "cache_hit_ratio": cache_hit_ratio,
+    "peak_gpu_mem_mib": peak_gpu_mem_mib,
+    "gpu_mem_log_file": str(gpu_mem_log_path) if gpu_mem_log_path.exists() else None,
     "log_file": str(log_path),
     "parsed_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
 }
@@ -256,6 +329,7 @@ print(
     f"[DECODE] run={run_name} seq_tokens={seq_tokens} batch_size={batch_size} cache_policy={cache_policy} "
     f"decode_ms_per_step={decode_ms:.4f} decode_tokens_per_s={throughput:.4f} "
     f"cache_hit_ratio={(cache_hit_ratio if cache_hit_ratio is not None else float('nan')):.4f} "
+    f"peak_gpu_mem_mib={(peak_gpu_mem_mib if peak_gpu_mem_mib is not None else 'NA')} "
     f"summary_csv={summary_path}"
 )
 print(
@@ -354,6 +428,7 @@ PY
       run_name="${run_name}-${RUN_SUFFIX}"
     fi
     log_file="${seq_output_dir}/${run_name}.log"
+    gpu_mem_log_file="${seq_output_dir}/${run_name}.gpu_mem.csv"
 
     cmd=(
       "${PYTHON_BIN}" -u "${SCRIPT_DIR}/test.py"
@@ -423,11 +498,20 @@ PY
       echo "[NSYS] ${run_name} -> ${nsys_output}.nsys-rep"
     fi
 
+    echo "[GPU_MEM] ${run_name} sampling gpu=${CUDA_DEVICE} interval=${GPU_MEM_MONITOR_INTERVAL_SEC}s -> ${gpu_mem_log_file}"
+    gpu_mem_monitor_pid=""
+    if start_gpu_memory_monitor "${CUDA_DEVICE}" "${gpu_mem_log_file}" "${GPU_MEM_MONITOR_INTERVAL_SEC}"; then
+      :
+    else
+      gpu_mem_monitor_pid=""
+    fi
+
     echo "[RUN] ${run_name} data=${data_file} ruler_task=${actual_ruler_task} data_length=${actual_data_length:-unknown} sample_scan_limit=${DATA_SAMPLE_SCAN_LIMIT} max_len_dev=${MAX_LENGTH_DEVIATION_RATIO} dtype=${D_TYPE} gen_len=${GEN_LEN} prefill_bsz=${PREFILL_BSZ} prefill_method=${PREFILL_METHOD} retrieval_budget=${RETRIEVAL_BUDGET} estimation_budget=${ESTIMATION_BUDGET} cache_multiplier=${CACHE_RATIO} cache=${CACHE} cache_policy=${CACHE_POLICY} cuda_graph=${USE_CUDA_GRAPH} gpu_only=${GPU_ONLY} cache_stats=${RETRO_CACHE_STATS}"
     set +e
     RATIO="${TOPK}" CACHE="${CACHE}" RETRO_CACHE_POLICY="${CACHE_POLICY}" RETRO_CACHE_STATS="${RETRO_CACHE_STATS}" OMP_NUM_THREADS="${OMP_THREADS}" \
       "${run_cmd[@]}" 2>&1 | tee "${log_file}"
     run_status=${PIPESTATUS[0]}
+    stop_gpu_memory_monitor "${gpu_mem_monitor_pid}"
     set -e
 
     if [[ "${run_status}" -ne 0 ]]; then
@@ -435,7 +519,7 @@ PY
       exit "${run_status}"
     fi
 
-    append_decode_summary_outputs "${log_file}" "${seq_decode_summary_csv}" "${seq_decode_summary_json_dir}" "${run_name}" "${seq_tokens}" "${bsz}" "${CACHE_POLICY}" | tee -a "${log_file}"
+    append_decode_summary_outputs "${log_file}" "${seq_decode_summary_csv}" "${seq_decode_summary_json_dir}" "${run_name}" "${seq_tokens}" "${bsz}" "${CACHE_POLICY}" "${gpu_mem_log_file}" | tee -a "${log_file}"
   done
 done
 
