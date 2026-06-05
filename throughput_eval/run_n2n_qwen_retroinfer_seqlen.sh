@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 CUDA_DEVICE="${CUDA_DEVICE:-0}"
-MODEL_NAME="${MODEL_NAME:-/jhe/Qwen2.5-14B-Instruct-1M}"
+MODEL_NAME="${MODEL_NAME:-/data3/Qwen2.5-14B-Instruct-1M}"
 MODEL_TAG="${MODEL_TAG:-qwen2.5-14b-1m}"
 DATASET_STEM="${DATASET_STEM:-Qwen2.5-7B-Instruct-1M}"
 DATA_DIR="${DATA_DIR:-${SCRIPT_DIR}/data}"
@@ -28,6 +28,7 @@ USE_CUDA_GRAPH="${USE_CUDA_GRAPH:-1}"
 GPU_ONLY="${GPU_ONLY:-0}"
 RETRO_CACHE_STATS="${RETRO_CACHE_STATS:-1}"
 OMP_THREADS="${OMP_THREADS:-64}"
+RETROINFER_CORE="${RETROINFER_CORE:-22}"
 GPU_MEM_MONITOR_INTERVAL_SEC="${GPU_MEM_MONITOR_INTERVAL_SEC:-0.5}"
 USE_NUMACTL="${USE_NUMACTL:-1}"
 NUMA_NODE="${NUMA_NODE:-0}"
@@ -524,7 +525,7 @@ PY
 
     echo "[RUN] ${run_name} data=${data_file} ruler_task=${actual_ruler_task} data_length=${actual_data_length:-unknown} sample_scan_limit=${DATA_SAMPLE_SCAN_LIMIT} max_len_dev=${MAX_LENGTH_DEVIATION_RATIO} dtype=${D_TYPE} gen_len=${GEN_LEN} prefill_bsz=${PREFILL_BSZ} prefill_method=${PREFILL_METHOD} retrieval_budget=${RETRIEVAL_BUDGET} estimation_budget=${ESTIMATION_BUDGET} cache_multiplier=${CACHE_RATIO} cache=${CACHE} cache_policy=${CACHE_POLICY} cuda_graph=${USE_CUDA_GRAPH} gpu_only=${GPU_ONLY} cache_stats=${RETRO_CACHE_STATS}"
     set +e
-    RATIO="${TOPK}" CACHE="${CACHE}" RETRO_CACHE_POLICY="${CACHE_POLICY}" RETRO_CACHE_STATS="${RETRO_CACHE_STATS}" OMP_NUM_THREADS="${OMP_THREADS}" \
+    RATIO="${TOPK}" CACHE="${CACHE}" RETROINFER_CORE="${RETROINFER_CORE}" RETRO_CACHE_POLICY="${CACHE_POLICY}" RETRO_CACHE_STATS="${RETRO_CACHE_STATS}" OMP_NUM_THREADS="${OMP_THREADS}" \
       "${run_cmd[@]}" 2>&1 | tee "${log_file}"
     run_status=${PIPESTATUS[0]}
     stop_gpu_memory_monitor "${gpu_mem_monitor_pid}"
