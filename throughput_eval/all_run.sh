@@ -7,7 +7,7 @@
 export TOPK="${TOPK:-0.10}"
 export RETRIEVAL_BUDGET="${RETRIEVAL_BUDGET:-${TOPK}}"
 export ESTIMATION_BUDGET="${ESTIMATION_BUDGET:-0.232}"
-export RETROINFER_CORE="${RETROINFER_CORE:-22}"
+export RETROINFER_CORE="${RETROINFER_CORE:-18}"
 
 run_experiment() {
     local name="$1"
