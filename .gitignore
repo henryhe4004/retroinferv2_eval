@@ -434,3 +434,5 @@ throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache1-policyLRU-cudagraph1
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache1-policyFIFO-cudagraph1
 throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache1-policyLRU-cudagraph1
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys0-cache3-policyFIFO-cudagraph1
+throughput_eval/Llama-3-8B-Instruct-Gradient-1048k-retroinfer-seqlen-logs-nsys1-cache3-policyFIFO-cudagraph1
